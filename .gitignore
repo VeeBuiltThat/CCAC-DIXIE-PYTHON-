@@ -1,0 +1,20 @@
+.env
+config.ExecutionPolicy
+.env.local
+.env.*.local
+secrets.json
+credentials.json
+*.pem
+*.key
+*.p12
+node_modules/
+.vscode/
+.DS_Store
+
+Security notes
+- .env.example exists as a template. Never commit real secrets.
+- Use scripts\pre-commit.ps1 to block local commits with likely secrets.
+  - Install locally: copy scripts\pre-commit.ps1 to .git\hooks\pre-commit (or set core.hooksPath).
+  - Make sure PowerShell can run scripts or run with: powershell -ExecutionPolicy Bypass -File .\scripts\pre-commit.ps1
+- CI runs .github/workflows/secret-scan.yml to detect secrets on push/PR.
+- If the scanner flags something, move it to .env (never committed) or your secret manager (Azure Key Vault, GitHub Secrets, etc.).
