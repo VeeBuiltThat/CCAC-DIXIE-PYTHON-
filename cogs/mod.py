@@ -326,27 +326,105 @@ class Mod(commands.Cog):
     @commands.command(name="wlist")
     async def wlist(self, ctx, user_id: int):
         minor_warnings, major_warnings = get_warnings(user_id)
-        embed = discord.Embed(title=f"Warnings for <@{user_id}>", color=discord.Color.orange())
 
-        if minor_warnings:
-            value = "\n".join(
+        # Helper: format each warning line
+        def _format_lines(warnings):
+            return [
                 f"{i+1}. [{w['log_id']}] {w['reason']} - by <@{w['mod_id']}> - {w['date'].strftime('%d/%m/%Y')}"
-                for i, w in enumerate(minor_warnings)
-            )
-            embed.add_field(name="Minor Warnings", value=value, inline=False)
-        else:
-            embed.add_field(name="Minor Warnings", value="None", inline=False)
+                for i, w in enumerate(warnings)
+            ]
 
-        if major_warnings:
-            value = "\n".join(
-                f"{i+1}. [{w['log_id']}] {w['reason']} - by <@{w['mod_id']}> - {w['date'].strftime('%d/%m/%Y')}"
-                for i, w in enumerate(major_warnings)
-            )
-            embed.add_field(name="Major Warnings", value=value, inline=False)
-        else:
-            embed.add_field(name="Major Warnings", value="None", inline=False)
+        minor_lines = _format_lines(minor_warnings)
+        major_lines = _format_lines(major_warnings)
 
-        await ctx.send(embed=embed)
+        # Helper: page lines into page strings that stay under the char limit per embed field (safety margin)
+        def _paginate_lines(lines, header, max_chars=900):
+            if not lines:
+                return [f"**{header}**\nNone"]
+            pages = []
+            cur = []
+            cur_len = len(header) + 3  # header plus newline margin
+            for line in lines:
+                next_len = len(line) + 1
+                if cur and (cur_len + next_len) > max_chars:
+                    pages.append(f"**{header}**\n" + "\n".join(cur))
+                    cur = [line]
+                    cur_len = len(header) + 3 + next_len
+                else:
+                    cur.append(line)
+                    cur_len += next_len
+            if cur:
+                pages.append(f"**{header}**\n" + "\n".join(cur))
+            return pages
+
+        minor_pages = _paginate_lines(minor_lines, "Minor Warnings")
+        major_pages = _paginate_lines(major_lines, "Major Warnings")
+
+        # Combine pages (minor pages first, then major pages). Could be changed to tabs if you prefer.
+        pages = []
+        pages.extend(minor_pages if minor_pages else ["**Minor Warnings**\nNone"])
+        pages.extend(major_pages if major_pages else ["**Major Warnings**\nNone"])
+
+        # Build embed helper
+        def make_embed(page_index: int):
+            embed = discord.Embed(title=f"Warnings for <@{user_id}>", color=discord.Color.orange(), timestamp=datetime.datetime.utcnow())
+            embed.description = pages[page_index]
+            embed.set_footer(text=f"Page {page_index+1}/{len(pages)}")
+            return embed
+
+        # Paginator view with Prev / Next / Close
+        class WarningsPaginator(discord.ui.View):
+            def __init__(self, author, timeout=120):
+                super().__init__(timeout=timeout)
+                self.author = author
+                self.current = 0
+                # We'll set `self.message` after sending
+            async def _update_buttons(self):
+                total = len(pages)
+                self.previous.disabled = (self.current == 0)
+                self.next.disabled = (self.current >= total - 1)
+
+            async def on_timeout(self):
+                for item in self.children:
+                    item.disabled = True
+                try:
+                    await self.message.edit(view=self)
+                except Exception:
+                    pass
+
+            @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary, custom_id="wlist_prev")
+            async def previous(self, interaction: discord.Interaction, button: discord.ui.Button):
+                if interaction.user.id != self.author.id:
+                    return await interaction.response.send_message("Only the command author can use these buttons.", ephemeral=True)
+                self.current = max(0, self.current - 1)
+                await self._update_buttons()
+                await interaction.response.edit_message(embed=make_embed(self.current), view=self)
+
+            @discord.ui.button(label="Next", style=discord.ButtonStyle.primary, custom_id="wlist_next")
+            async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
+                if interaction.user.id != self.author.id:
+                    return await interaction.response.send_message("Only the command author can use these buttons.", ephemeral=True)
+                self.current = min(len(pages) - 1, self.current + 1)
+                await self._update_buttons()
+                await interaction.response.edit_message(embed=make_embed(self.current), view=self)
+
+            @discord.ui.button(label="Close", style=discord.ButtonStyle.danger, custom_id="wlist_close")
+            async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
+                if interaction.user.id != self.author.id:
+                    return await interaction.response.send_message("Only the command author can use these buttons.", ephemeral=True)
+                for item in self.children:
+                    item.disabled = True
+                self.stop()
+                try:
+                    await interaction.response.edit_message(view=self)
+                except Exception:
+                    pass
+
+        view = WarningsPaginator(ctx.author)
+        # initialize buttons disabled state
+        await view._update_buttons()
+        msg = await ctx.send(embed=make_embed(0), view=view)
+        view.message = msg
 
 
     # !note <user_ID> <message>
