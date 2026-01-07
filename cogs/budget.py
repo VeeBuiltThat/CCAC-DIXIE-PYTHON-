@@ -159,9 +159,13 @@ class WarningView(View):
 
         try:
             msg = await self.bot.wait_for("message", check=check, timeout=120)
+            warned_label = "MINOR" if self.warning_type == "Minor Warning" else "MAJOR"
+            prefix = f"You have received a {warned_label} warning in **Cheesecake Art Cafe** server.\n\n"
+            content_with_prefix = prefix + msg.content
+
             embed = discord.Embed(
                 title=f"⚠️ {self.warning_type} Issued",
-                description=msg.content,
+                description=content_with_prefix,
                 color=discord.Color.orange() if self.warning_type == "Major Warning" else discord.Color.red()
             )
             embed.set_footer(text="Please follow the server rules.")
@@ -169,7 +173,7 @@ class WarningView(View):
                 await self.user.send(embed=embed)
                 await interaction.followup.send("Custom warning sent.", ephemeral=True)
                 action_type = "major_warning" if self.warning_type == "Major Warning" else "minor_warning"
-                add_mod_log(self.user.id, msg.content, interaction.user.id, action_type)
+                add_mod_log(self.user.id, content_with_prefix, interaction.user.id, action_type)
 
                 await self.message.delete()
                 warned_type = "MINOR" if self.warning_type == "Minor Warning" else "MAJOR"
@@ -219,6 +223,10 @@ class WarningSelect(Select):
         if not chosen:
             await interaction.response.send_message("Selected template not found.", ephemeral=True)
             return
+
+        warned_label = "MINOR" if self.parent.warning_type == "Minor Warning" else "MAJOR"
+        prefix = f"You have received a {warned_label} warning in **Cheesecake Art Cafe** server.\n\n"
+        chosen = prefix + chosen
 
         embed = discord.Embed(
             title=f"⚠️ {self.parent.warning_type}",

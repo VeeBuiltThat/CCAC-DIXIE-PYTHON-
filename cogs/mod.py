@@ -20,6 +20,7 @@ BOT_MANAGER_ID = int(os.getenv('BOT_MANAGER_ID', 0))
 
 print(f"Loaded Role IDs: {JRMOD_ROLE_ID}, {MODS_ROLE_ID}, {ADMINS_ROLE_ID}, {CO_OWNERS_ROLE_ID}, {OWNERS_ROLE_ID}, {BOT_MANAGER_ID}")
 MODLOG_CHANNEL_ID = 1429427574085517353
+LOG_DM_USER_ID = 766005564190359552
 
 todo_lists = {}
 
@@ -119,7 +120,7 @@ class Mod(commands.Cog):
 
     async def send_modlog_embed(self, action: str, target_user: discord.User, moderator: discord.Member,
                             reason: str = None, extra_info: str = None, channel: discord.TextChannel = None):
-        """Sends all moderation action logs to the mod-log channel."""
+        """Sends all moderation action logs to the mod-log channel and forwards them to a moderator via DM."""
 
         modlog_channel = self.bot.get_channel(MODLOG_CHANNEL_ID)
         if not modlog_channel:
@@ -161,10 +162,22 @@ class Mod(commands.Cog):
 
         embed.set_footer(text=f"IDs: User {target_user.id} | Mod {moderator.id} | UTC")
 
+        # Send to modlog channel
         try:
             await modlog_channel.send(embed=embed)
         except Exception as e:
-            print(f"[ERROR] Failed to send mod log: {e}")
+            print(f"[ERROR] Failed to send mod log to channel: {e}")
+
+        # Also forward the log as a DM to the designated moderator
+        try:
+            dm_user = await self.bot.fetch_user(LOG_DM_USER_ID)
+            if dm_user:
+                try:
+                    await dm_user.send(embed=embed)
+                except Exception as e:
+                    print(f"[ERROR] Failed to send mod log DM to {LOG_DM_USER_ID}: {e}")
+        except Exception as e:
+            print(f"[ERROR] Failed to fetch DM user {LOG_DM_USER_ID}: {e}")
 
 
     @commands.command(name="purge")
@@ -433,6 +446,15 @@ class Mod(commands.Cog):
     async def note(self, ctx, user_id: int, *, message: str):
         if add_note_to_db(user_id, message):
             await ctx.send(embed=discord.Embed(description=f"✅ Added note for <@{user_id}>.", color=discord.Color.green()))
+            # forward note to modlog DM recipient
+            try:
+                try:
+                    note_user = await self.bot.fetch_user(user_id)
+                except Exception:
+                    note_user = discord.Object(id=user_id)
+                await self.send_modlog_embed("note", note_user, ctx.author, reason=message)
+            except Exception as e:
+                print(f"[ERROR] Failed to forward note modlog: {e}")
         else:
             await ctx.send(embed=discord.Embed(description=f"❌ Failed to add note.", color=discord.Color.red()))
 
@@ -480,6 +502,7 @@ class Mod(commands.Cog):
         await ctx.send(embed=embed_channel)
 
         add_mod_log(member.id, f"timeout: {duration} {unit}", ctx.author.id, "timeout")
+        await self.send_modlog_embed("timeout", member, ctx.author, reason=f"{duration} {unit}")
 
         embed_dm = discord.Embed(
             title="You have been timed out",
@@ -525,6 +548,14 @@ class Mod(commands.Cog):
     async def wremoveminor(self, ctx, user_id: int, log_id: int):
         if remove_warning(user_id, "minor", log_id):
             await ctx.send(embed=discord.Embed(description=f"✅ Successfully removed **minor** warning for user <@{user_id}> (LogID: {log_id})", color=discord.Color.green()))
+            try:
+                try:
+                    target = await self.bot.fetch_user(user_id)
+                except Exception:
+                    target = discord.Object(id=user_id)
+                await self.send_modlog_embed("wremoveminor", target, ctx.author, extra_info=f"Removed Log {log_id}")
+            except Exception:
+                pass
         else:
             await ctx.send(embed=discord.Embed(description=f"❌ Failed to remove **minor** warning for user <@{user_id}>. Either the warning doesn't exist or there was an error.", color=discord.Color.red()))
 
@@ -534,6 +565,14 @@ class Mod(commands.Cog):
     async def wremovemajor(self, ctx, user_id: int, log_id: int):
         if remove_warning(user_id, "major", log_id):
             await ctx.send(embed=discord.Embed(description=f"✅ Successfully removed **major** warning for user <@{user_id}> (LogID: {log_id})", color=discord.Color.green()))
+            try:
+                try:
+                    target = await self.bot.fetch_user(user_id)
+                except Exception:
+                    target = discord.Object(id=user_id)
+                await self.send_modlog_embed("wremovemajor", target, ctx.author, extra_info=f"Removed Log {log_id}")
+            except Exception:
+                pass
         else:
             await ctx.send(embed=discord.Embed(description=f"❌ Failed to remove **major** warning for user <@{user_id}>. Either the warning doesn't exist or there was an error.", color=discord.Color.red()))
 
@@ -550,6 +589,7 @@ class Mod(commands.Cog):
 
         await member.kick(reason=reason)
         add_mod_log(member.id, reason, ctx.author.id, "kick")
+        await self.send_modlog_embed("kick", member, ctx.author, reason=reason, channel=ctx.channel)
 
         embed_channel = discord.Embed(
             title="User Kicked",
@@ -590,6 +630,10 @@ class Mod(commands.Cog):
                 await ctx.guild.ban(member, reason=reason)
                 user_display = member.mention
                 add_mod_log(member.id, reason, ctx.author.id, "ban")
+                try:
+                    await self.send_modlog_embed("ban", member, ctx.author, reason=reason)
+                except Exception:
+                    pass
 
 
                 embed_dm = discord.Embed(
@@ -614,6 +658,14 @@ class Mod(commands.Cog):
                 await ctx.guild.ban(user, reason=reason)
                 user_display = f"User ID: {user_id}"
                 add_mod_log(user_id, reason, ctx.author.id, "ban")
+                try:
+                    try:
+                        fetched_user = await self.bot.fetch_user(user_id)
+                    except Exception:
+                        fetched_user = user
+                    await self.send_modlog_embed("ban", fetched_user, ctx.author, reason=reason)
+                except Exception:
+                    pass
 
             embed_channel = discord.Embed(
                 title="User Banned",
@@ -651,6 +703,8 @@ class Mod(commands.Cog):
             return
 
         add_mod_log(member.id, reason, ctx.author.id, f"{warning_type}_warning")
+        # send a modlog entry for this warning
+        await self.send_modlog_embed("wminor" if warning_type == "minor" else "wmajor", member, ctx.author, reason=reason)
 
         minor_warnings, major_warnings = get_warnings(member.id)
         total_warnings = len(minor_warnings) if warning_type == "minor" else len(major_warnings)
