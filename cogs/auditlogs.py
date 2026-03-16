@@ -31,7 +31,7 @@ class AuditLogs(commands.Cog):
             title=title,
             description=description,
             color=color,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
         if footer:
             embed.set_footer(text=footer)
@@ -67,7 +67,7 @@ class AuditLogs(commands.Cog):
         log = self.log_channel(member.guild)
         if log:
             join_time = member.joined_at or member.created_at
-            duration = format_duration(join_time, datetime.utcnow())
+            duration = format_duration(join_time, datetime.now(timezone.utc))
             roles = ", ".join(r.mention for r in member.roles if r != member.guild.default_role) or "None"
             embed = self.create_embed(
                 "Member Left",

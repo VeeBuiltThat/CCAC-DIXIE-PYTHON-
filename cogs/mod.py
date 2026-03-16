@@ -464,29 +464,25 @@ class Mod(commands.Cog):
     async def timeout(self, ctx, user_id: int, duration: int, unit: str, *, reason="No reason provided"):
         member = ctx.guild.get_member(user_id)
         if not member:
-            return await ctx.send(embed=discord.Embed(
+            await ctx.send(embed=discord.Embed(
                 description="User not found in this server.",
                 color=discord.Color.red()
             ))
+            return
 
         if unit not in ["minutes", "hours", "days"]:
-            return await ctx.send(embed=discord.Embed(
-                description='Invalid time unit. Please use "minutes", "hours", or "days".',
-                color=discord.Color.red()
+            await ctx.send(embed=discord.Embed(
+                description="Invalid time unit. Use 'minutes', 'hours', or 'days'."
             ))
+            return
 
-        if unit == "minutes":
-            delta = datetime.timedelta(minutes=duration)
-        elif unit == "hours":
-            delta = datetime.timedelta(hours=duration)
-        elif unit == "days":
-            delta = datetime.timedelta(days=duration)
-
+        delta = datetime.timedelta(**{unit: duration})
         if delta.total_seconds() > 2592000:  # 30 days
-            return await ctx.send(embed=discord.Embed(
+            await ctx.send(embed=discord.Embed(
                 description='Timeout duration cannot exceed 30 days. Please adjust the duration.',
                 color=discord.Color.red()
             ))
+            return
 
         await member.edit(timed_out_until=utcnow() + delta)
 
@@ -522,6 +518,63 @@ class Mod(commands.Cog):
                 color=discord.Color.red()
             ))
 
+        # Send log to the appropriate forum thread
+        forum_channel_id = 1466719352698175509 if warning_type == "major" else 1466719275246030899
+        forum_channel = ctx.guild.get_channel(forum_channel_id)
+        if forum_channel:
+            await forum_channel.send(
+                content=f"Warning issued by {ctx.author.mention} for {member.mention} ({member.id}): {reason}"
+            )
+
+    async def issue_warning(self, ctx, member: discord.Member, warning_type: str, reason: str):
+        if not reason:
+            await ctx.send(embed=discord.Embed(
+                description=f'Please provide a reason for the warning, {ctx.author.mention}.',
+                color=discord.Color.red()
+            ))
+            return
+
+        add_mod_log(member.id, reason, ctx.author.id, f"{warning_type}_warning")
+        # send a modlog entry for this warning
+        await self.send_modlog_embed("wminor" if warning_type == "minor" else "wmajor", member, ctx.author, reason=reason)
+
+        minor_warnings, major_warnings = get_warnings(member.id)
+        total_warnings = len(minor_warnings) if warning_type == "minor" else len(major_warnings)
+
+        embed_channel = discord.Embed(
+            title=f"{warning_type.capitalize()} Warning Issued",
+            color=discord.Color.orange()
+        )
+        embed_channel.add_field(name="User", value=member.mention, inline=True)
+        embed_channel.add_field(name="Warned by", value=ctx.author.mention, inline=True)
+        embed_channel.add_field(name="Reason", value=reason, inline=False)
+        embed_channel.add_field(name=f"Total {warning_type.capitalize()} Warnings", value=total_warnings, inline=False)
+        await ctx.send(embed=embed_channel)
+
+        embed_dm = discord.Embed(
+            title=f"You have received a {warning_type} warning",
+            description=f"You have been issued a **{warning_type} warning** in **{ctx.guild.name}**.",
+            color=discord.Color.orange(),
+            timestamp=datetime.datetime.utcnow()
+        )
+        embed_dm.add_field(name="Reason", value=reason, inline=False)
+        embed_dm.set_footer(text="If you believe this warning was issued in error, please contact <@1420311570172346408>")
+
+        try:
+            await member.send(embed=embed_dm)
+        except discord.Forbidden:
+            await ctx.send(embed=discord.Embed(
+                description=f'Could not send DM to {member.mention}, they might have DMs disabled.',
+                color=discord.Color.red()
+            ))
+
+        # Send log to the appropriate forum thread
+        forum_channel_id = 1466719352698175509 if warning_type == "major" else 1466719275246030899
+        forum_channel = ctx.guild.get_channel(forum_channel_id)
+        if forum_channel:
+            await forum_channel.send(
+                content=f"Warning issued by {ctx.author.mention} for {member.mention} ({member.id}): {reason}"
+            )
 
     # !wminor <userID> <reason>
     @commands.command(name="wminor")
@@ -618,6 +671,12 @@ class Mod(commands.Cog):
                 color=discord.Color.red()
             ))
 
+        # Send log to the appropriate forum thread
+        forum_channel = ctx.guild.get_channel(1466719417147588650)
+        if forum_channel:
+            await forum_channel.send(
+                content=f"Kick issued by {ctx.author.mention} for {member.mention} ({member.id}): Reason: {reason}"
+            )
 
     # !ban <userID> <reason>
     @commands.command(name="ban")
@@ -626,7 +685,6 @@ class Mod(commands.Cog):
         try:
             member = ctx.guild.get_member(user_id)
             if member:
-
                 await ctx.guild.ban(member, reason=reason)
                 user_display = member.mention
                 add_mod_log(member.id, reason, ctx.author.id, "ban")
@@ -634,7 +692,6 @@ class Mod(commands.Cog):
                     await self.send_modlog_embed("ban", member, ctx.author, reason=reason)
                 except Exception:
                     pass
-
 
                 embed_dm = discord.Embed(
                     title="You have been banned",
@@ -653,19 +710,10 @@ class Mod(commands.Cog):
                         color=discord.Color.red()
                     ))
             else:
-
                 user = discord.Object(id=user_id)
                 await ctx.guild.ban(user, reason=reason)
                 user_display = f"User ID: {user_id}"
                 add_mod_log(user_id, reason, ctx.author.id, "ban")
-                try:
-                    try:
-                        fetched_user = await self.bot.fetch_user(user_id)
-                    except Exception:
-                        fetched_user = user
-                    await self.send_modlog_embed("ban", fetched_user, ctx.author, reason=reason)
-                except Exception:
-                    pass
 
             embed_channel = discord.Embed(
                 title="User Banned",
@@ -676,6 +724,13 @@ class Mod(commands.Cog):
             embed_channel.add_field(name="Banned by", value=ctx.author.mention, inline=True)
             embed_channel.add_field(name="Reason", value=reason, inline=False)
             await ctx.send(embed=embed_channel)
+
+            # Send log to the appropriate forum thread
+            forum_channel = ctx.guild.get_channel(1466719199320866856)
+            if forum_channel:
+                await forum_channel.send(
+                    content=f"Ban issued by {ctx.author.mention} for {user_display}: Reason: {reason}"
+                )
 
         except discord.NotFound:
             await ctx.send(embed=discord.Embed(
@@ -693,6 +748,64 @@ class Mod(commands.Cog):
                 color=discord.Color.red()
             ))
 
+
+    @commands.command(name="staffhelp")
+    @commands.has_any_role(JRMOD_ROLE_ID, MODS_ROLE_ID, ADMINS_ROLE_ID, CO_OWNERS_ROLE_ID, OWNERS_ROLE_ID, BOT_MANAGER_ID)
+    async def staffhelp(self, ctx):
+        """Displays all staff commands grouped by minimum required role."""
+
+        embed = discord.Embed(
+            title="📋 Staff Command Reference",
+            description="All commands available to moderation staff. Use `!` as the prefix.",
+            color=discord.Color.blurple(),
+            timestamp=datetime.datetime.utcnow()
+        )
+
+        embed.add_field(
+            name="👤 All Staff",
+            value=(
+                "`!whois [user_id]` — View user info, warnings, roles & notes\n"
+                "`!wlist <user_id>` — List all warnings for a user\n"
+                "`!blacklistcheck <user_id>` — Check a user's blacklist records\n"
+                "`!slowstatus` — Show active custom slowmode for this channel\n"
+                "`!todo <task> [HH:MM]` — Add a personal to-do item (optional reminder)\n"
+                "`!todoshow` — Show your to-do list"
+            ),
+            inline=False
+        )
+
+        embed.add_field(
+            name="🔨 Jr. Mod +",
+            value=(
+                "`!wminor <user_id> <reason>` — Issue a minor warning\n"
+                "`!wmajor <user_id> <reason>` — Issue a major warning\n"
+                "`!wremoveminor <user_id> <log_id>` — Remove a minor warning by log ID\n"
+                "`!wremovemajor <user_id> <log_id>` — Remove a major warning by log ID\n"
+                "`!timeout <user_id> <duration> <minutes|hours|days> <reason>` — Timeout a user\n"
+                "`!timeremove <user_id>` — Remove an active timeout\n"
+                "`!kick <user_id> <reason>` — Kick a user from the server"
+            ),
+            inline=False
+        )
+
+        embed.add_field(
+            name="⚒️ Mod +",
+            value=(
+                "`!ban <user_id> <reason>` — Ban a user (supports IDs for non-members)\n"
+                "`!unban <user_id> <reason>` — Unban a user by ID\n"
+                "`!purge <1–100>` — Delete messages in the current channel\n"
+                "`!slow <duration> <seconds|minutes|hours|days>` — Set native Discord slowmode\n"
+                "`!slowremove` — Remove native Discord slowmode from this channel\n"
+                "`!setslowmode [hours] [minutes]` — Set persistent custom slowmode\n"
+                "`!resetslow <@member>` — Reset a member's custom slowmode cooldown\n"
+                "`!note <user_id> <message>` — Add a private mod note for a user\n"
+                "`!blacklist <@user|user_id> <reason>` — Blacklist and ban a user"
+            ),
+            inline=False
+        )
+
+        embed.set_footer(text=f"Requested by {ctx.author} • Dixie Moderation Bot")
+        await ctx.send(embed=embed)
 
     async def issue_warning(self, ctx, member: discord.Member, warning_type: str, reason: str):
         if not reason:
@@ -735,6 +848,14 @@ class Mod(commands.Cog):
                 description=f'Could not send DM to {member.mention}, they might have DMs disabled.',
                 color=discord.Color.red()
             ))
+
+        # Send log to the appropriate forum thread
+        forum_channel_id = 1466719352698175509 if warning_type == "major" else 1466719275246030899
+        forum_channel = ctx.guild.get_channel(forum_channel_id)
+        if forum_channel:
+            await forum_channel.send(
+                content=f"Warning issued by {ctx.author.mention} for {member.mention} ({member.id}): {reason}"
+            )
 
 async def setup(bot):
     await bot.add_cog(Mod(bot))
