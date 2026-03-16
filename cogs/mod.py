@@ -19,10 +19,27 @@ OWNERS_ROLE_ID = int(os.getenv('OWNERS_ROLE_ID', 0))
 BOT_MANAGER_ID = int(os.getenv('BOT_MANAGER_ID', 0))
 
 print(f"Loaded Role IDs: {JRMOD_ROLE_ID}, {MODS_ROLE_ID}, {ADMINS_ROLE_ID}, {CO_OWNERS_ROLE_ID}, {OWNERS_ROLE_ID}, {BOT_MANAGER_ID}")
-MODLOG_CHANNEL_ID = 1429427574085517353
-LOG_DM_USER_ID = [ 606168720456286228,294913381733892096, 251172481530986496 ]
+MODLOG_CHANNEL_ID = 1462143820232921193
 
-todo_lists = {}
+# Forum thread IDs for specific actions
+FORUM_THREADS = {
+    "wminor": 1466719275246030899,
+    "wremoveminor": 1466719275246030899,
+    "wmajor": 1466719352698175509,
+    "wremovemajor": 1466719352698175509,
+    "timeout": 1466719534189777031,
+    "timeremove": 1466719534189777031,
+    "kick": 1466719417147588650,
+    "ban": 1466719199320866856,
+    "unban": 1466719199320866856,
+    "purge": 1466719750762528860,
+    "slow": 1466719750762528860,
+    "slowremove": 1466719750762528860,
+    "setslowmode": 1466719750762528860,
+    "resetslow": 1466719750762528860,
+    "note": 1466719750762528860,
+    "blacklist": 1466719750762528860
+}
 
 def has_role_ids(*role_ids):
     """Custom check for role IDs instead of names"""
@@ -120,11 +137,24 @@ class Mod(commands.Cog):
 
     async def send_modlog_embed(self, action: str, target_user: discord.User, moderator: discord.Member,
                             reason: str = None, extra_info: str = None, channel: discord.TextChannel = None):
-        """Sends all moderation action logs to the mod-log channel and forwards them to a moderator via DM."""
+        """Sends all moderation action logs to the appropriate forum thread."""
 
-        modlog_channel = self.bot.get_channel(MODLOG_CHANNEL_ID)
-        if not modlog_channel:
-            print(f"[ERROR] Modlog channel {MODLOG_CHANNEL_ID} not found.")
+        forum_thread_id = FORUM_THREADS.get(action.lower())
+        if not forum_thread_id:
+            await moderator.send(embed=discord.Embed(
+                description=f"[ERROR] No forum thread mapped for action '{action}'. Please check the configuration.",
+                color=discord.Color.red()
+            ))
+            print(f"[ERROR] No forum thread mapped for action '{action}'.")
+            return
+
+        forum_thread = self.bot.get_channel(forum_thread_id)
+        if not forum_thread:
+            await moderator.send(embed=discord.Embed(
+                description=f"[ERROR] Forum thread {forum_thread_id} for action '{action}' not found or inaccessible.",
+                color=discord.Color.red()
+            ))
+            print(f"[ERROR] Forum thread {forum_thread_id} for action '{action}' not found or inaccessible.")
             return
 
         color = {
@@ -162,23 +192,15 @@ class Mod(commands.Cog):
 
         embed.set_footer(text=f"IDs: User {target_user.id} | Mod {moderator.id} | UTC")
 
-        # Send to modlog channel
+        # Send to the appropriate forum thread
         try:
-            await modlog_channel.send(embed=embed)
+            await forum_thread.send(embed=embed)
         except Exception as e:
-            print(f"[ERROR] Failed to send mod log to channel: {e}")
-
-        # Also forward the log as a DM to the designated moderator
-        try:
-            dm_user = await self.bot.fetch_user(LOG_DM_USER_ID)
-            if dm_user:
-                try:
-                    await dm_user.send(embed=embed)
-                except Exception as e:
-                    print(f"[ERROR] Failed to send mod log DM to {LOG_DM_USER_ID}: {e}")
-        except Exception as e:
-            print(f"[ERROR] Failed to fetch DM user {LOG_DM_USER_ID}: {e}")
-
+            await moderator.send(embed=discord.Embed(
+                description=f"[ERROR] Failed to send mod log to forum thread {forum_thread_id}: {e}",
+                color=discord.Color.red()
+            ))
+            print(f"[ERROR] Failed to send mod log to forum thread {forum_thread_id}: {e}")
 
     @commands.command(name="purge")
     @commands.has_permissions(manage_messages=True)
