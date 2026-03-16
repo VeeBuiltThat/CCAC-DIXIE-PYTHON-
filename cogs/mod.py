@@ -879,5 +879,75 @@ class Mod(commands.Cog):
                 content=f"Warning issued by {ctx.author.mention} for {member.mention} ({member.id}): {reason}"
             )
 
+    # !tododelete
+    @commands.command(name="tododelete")
+    async def tododelete(self, ctx, todo_id: int):
+        """Delete a specific to-do item by its ID."""
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM todos WHERE id = %s", (todo_id,))
+            if cursor.rowcount > 0:
+                await ctx.send(embed=discord.Embed(
+                    description=f"✅ Successfully deleted to-do item with ID {todo_id}.",
+                    color=discord.Color.green()
+                ))
+            else:
+                await ctx.send(embed=discord.Embed(
+                    description=f"❌ No to-do item found with ID {todo_id}.",
+                    color=discord.Color.red()
+                ))
+            cursor.close()
+            conn.close()
+        except Exception as e:
+            await ctx.send(embed=discord.Embed(
+                description=f"❌ Failed to delete to-do item: {e}",
+                color=discord.Color.red()
+            ))
+
+    # !notes
+    @commands.command(name="notes")
+    async def notes(self, ctx, user_id: int):
+        """View all notes for a specific user."""
+        notes = get_notes(user_id)
+        if not notes:
+            await ctx.send(embed=discord.Embed(
+                description=f"No notes found for user <@{user_id}>.",
+                color=discord.Color.blue()
+            ))
+            return
+
+        embed = discord.Embed(
+            title=f"Notes for User <@{user_id}>",
+            color=discord.Color.blue()
+        )
+        for i, note in enumerate(notes, start=1):
+            embed.add_field(name=f"Note {i}", value=note, inline=False)
+        await ctx.send(embed=embed)
+
+    # !noteremove
+    @commands.command(name="noteremove")
+    async def noteremove(self, ctx, user_id: int, note_number: int):
+        """Remove a specific note by its number."""
+        notes = get_notes(user_id)
+        if not notes or note_number < 1 or note_number > len(notes):
+            await ctx.send(embed=discord.Embed(
+                description=f"❌ Invalid note number for user <@{user_id}>.",
+                color=discord.Color.red()
+            ))
+            return
+
+        note_to_remove = notes[note_number - 1]
+        if remove_warning(user_id, "note", note_to_remove):
+            await ctx.send(embed=discord.Embed(
+                description=f"✅ Successfully removed note {note_number} for user <@{user_id}>.",
+                color=discord.Color.green()
+            ))
+        else:
+            await ctx.send(embed=discord.Embed(
+                description=f"❌ Failed to remove note {note_number} for user <@{user_id}>.",
+                color=discord.Color.red()
+            ))
+
 async def setup(bot):
     await bot.add_cog(Mod(bot))
