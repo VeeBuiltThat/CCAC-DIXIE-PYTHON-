@@ -13,7 +13,6 @@ Discord moderation bot used by CCAC. This repository contains the bot entrypoint
 - cogs/ — all bot cogs:
   - [cogs/mod.py](cogs/mod.py)
   - [cogs/verification.py](verification.py) (loaded as a Cog via [`verification.Security`](verification.py))
-  - [cogs/budget.py](cogs/budget.py)
   - [cogs/link_snatcher.py](cogs/link_snatcher.py)
   - [cogs/slowmode.py](cogs/slowmode.py)
   - [cogs/blacklist.py](cogs/blacklist.py)
@@ -69,7 +68,6 @@ Note: `main.py` also attempts to start a ModMail bot at `Modmail-master-1/bot.py
 - Moderation (cogs/mod.py):
   - !ban, !kick, !timeout, !wminor, !wmajor, !wremoveminor, !wremovemajor, !whois
   - Uses [`dbconnMOD.add_mod_log`](dbconnMOD.py) to record actions
-- Budget detection (cogs/budget.py) — automated checks + warning UI
 - Blacklist (cogs/blacklist.py) — !blacklist, !blacklistcheck
 - Link snatcher (cogs/link_snatcher.py) — deletes links in restricted channels
 - Slowmode (cogs/slowmode.py) — per-channel custom slowmode stored in MySQL
